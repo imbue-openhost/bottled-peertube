@@ -1,7 +1,7 @@
-# openhost-peertube
+# bottled-peertube
 
 [PeerTube](https://joinpeertube.org) — a federated video platform — packaged
-as a single-container OpenHost app.
+as a single-container Cloud in a Bottle app.
 
 ## What's in the container
 
@@ -10,7 +10,7 @@ as a single-container OpenHost app.
 * PeerTube (`chocobozzz/peertube:production-bookworm`, currently v7.x)
 * Caddy 2 (Host-header rewriter mid-tier — see "Auth model" below)
 * A small Python auth-proxy sidecar that fronts everything else on
-  the OpenHost-router-facing port — see "Auth model" below
+  the Cloud in a Bottle-router-facing port — see "Auth model" below
 * `peertube-plugin-auth-openhost-sso` — a bundled PeerTube plugin
   that registers an external auth method, installed onto the
   running PeerTube on first boot via the standard plugin admin API.
@@ -20,7 +20,7 @@ as a single-container OpenHost app.
 The five long-lived services — Postgres, Redis, PeerTube, Caddy and
 the auth-proxy sidecar — are supervised by a small bash parent
 (`start.sh`) that starts them in that order and tears the whole
-container down if any one exits. OpenHost notices the exit and
+container down if any one exits. Cloud in a Bottle notices the exit and
 restarts us.
 
 ### Auth model: anonymous watch + owner SSO via PeerTube's external-auth API
@@ -41,7 +41,7 @@ The container's listening surface looks like this:
 ```
 
 **Anonymous viewers and federation traffic** pass straight through
-all three layers untouched. The OpenHost zone-level auth gate is
+all three layers untouched. The Cloud in a Bottle zone-level auth gate is
 disabled (`public_paths = ["/"]` in `openhost.toml`) because remote
 ActivityPub servers cannot present a `zone_auth` cookie — gating
 federation paths would break inbound follows, video discovery,
@@ -49,9 +49,9 @@ comment delivery, and HLS streaming to remote viewers.
 
 **The zone owner** (anyone holding a router-issued `zone_auth` JWT
 cookie, `sub == "owner"`) is auto-logged-in via PeerTube's own
-external-auth API. Mirroring the openhost-miniflux pattern (where
+external-auth API. Mirroring the bottled-miniflux pattern (where
 miniflux's `AUTH_PROXY_HEADER` does the equivalent) and the
-openhost-plane.so pattern (where `forward_auth` to `/check-session`
+bottled-plane.so pattern (where `forward_auth` to `/check-session`
 manufactures a Django session): instead of a hand-rolled
 localStorage trampoline, the actual sign-in is delegated to
 PeerTube's own login flow.
@@ -61,7 +61,7 @@ The flow:
 1. Owner browser navigates to `https://peertube.<your-zone>/` (or
    any other HTML page on the instance).
 2. The auth-proxy sidecar verifies the `zone_auth` cookie against
-   the OpenHost router's JWKS (RS256, `sub == "owner"`). On a hit
+   the Cloud in a Bottle router's JWKS (RS256, `sub == "owner"`). On a hit
    AND no `openhost_pt_sso_marker` cookie present, the sidecar
    responds with a 302 to
    `/plugins/auth-openhost-sso/router/auto-login` and a short-TTL
@@ -108,7 +108,7 @@ A non-owner whose session expired falls through to plain `/login`
 toast's "reconnect" link would have done.
 
 The end result: the owner clicks `https://peertube.<your-zone>`
-from the OpenHost dashboard and lands directly in the PeerTube
+from the Cloud in a Bottle dashboard and lands directly in the PeerTube
 admin UI, already logged in as `openhost`. No password prompt.
 The PeerTube mobile app and other third-party clients still work
 via the regular username + `admin-password.txt` flow — they get
@@ -126,7 +126,7 @@ all owned by the same login.
 **Why a plugin instead of header injection?** PeerTube's SPA
 loads its OAuth token from `localStorage`, not from a cookie or
 a request header. Stamping `X-Forwarded-User: root` on every
-proxied request (the openhost-miniflux pattern) doesn't help
+proxied request (the bottled-miniflux pattern) doesn't help
 because there's no native PeerTube hook that reads such a
 header. The plugin path uses the only API PeerTube provides for
 "this visitor is the named user, log them in": the
@@ -150,7 +150,7 @@ not us.
   `/plugins/auth-openhost-sso/router/auto-login`, they still need
   a valid owner `zone_auth` cookie to get logged in.
 * The marker cookie is `SameSite=Lax; Path=/`, plus `Secure` when
-  the connection arrived over HTTPS (always true on the OpenHost
+  the connection arrived over HTTPS (always true on the Cloud in a Bottle
   router; the sidecar omits `Secure` in dev / `lvh.me` setups so
   browsers don't silently drop a Secure cookie over plain HTTP
   and re-trigger the bounce). It carries no privilege — it just
@@ -173,7 +173,7 @@ not us.
 Even with the auth-proxy added, Caddy still has the original
 Host-header rewriting job: PeerTube's `/api/v1/oauth-clients/local`
 handler hard-checks `req.headers.host == webserver.hostname[:port]`
-and returns 403 otherwise. The OpenHost router strips the original
+and returns 403 otherwise. The Cloud in a Bottle router strips the original
 Host (httpx sets it to `127.0.0.1:9000`) and stuffs the public
 hostname into `X-Forwarded-Host`. Caddy reads `X-Forwarded-Host` and
 rewrites `Host` before forwarding. We could do this in Python in
@@ -199,7 +199,7 @@ This package records the hostname on first boot from
 `$OPENHOST_ZONE_DOMAIN` + `$OPENHOST_APP_NAME` (so on andrew-1 that's
 `peertube.andrew-1.selfhost.imbue.com`) and writes it to
 `$OPENHOST_APP_DATA_DIR/hostname`. The cache file is read on every
-subsequent boot and is **never overwritten**, even if the OpenHost zone
+subsequent boot and is **never overwritten**, even if the Cloud in a Bottle zone
 changes. If you really need to relocate the instance, you have to:
 
 1. Run upstream's [`update-host` script](https://docs.joinpeertube.org/maintain/migration#change-domain-name)
@@ -261,10 +261,10 @@ upload.
 
 ## Logging in for the first time
 
-**Through the OpenHost zone (preferred path).** The auth-proxy
+**Through the Cloud in a Bottle zone (preferred path).** The auth-proxy
 sidecar (see "Auth model" above) bounces the zone owner through
 PeerTube's external-auth flow. Once the container is healthy, click
-the PeerTube tile in your OpenHost dashboard and you'll land
+the PeerTube tile in your Cloud in a Bottle dashboard and you'll land
 directly in PeerTube's admin UI as the `openhost` user (created on
 first SSO sign-in via the bundled plugin). No password prompt. The
 first navigation triggers a brief redirect through
@@ -278,7 +278,7 @@ break-glass).** Use the `root` username + the password in
 `admin-password.txt`. The `root` user is the auto-generated
 PeerTube installer admin; it remains separate from the SSO-managed
 `openhost` user so password reset / mobile login keeps working
-even if the OpenHost router or the SSO plugin is down.
+even if the Cloud in a Bottle router or the SSO plugin is down.
 
 Read the password from inside the container:
 
@@ -286,9 +286,9 @@ Read the password from inside the container:
 cat /data/app_data/peertube/admin-password.txt
 ```
 
-(In the OpenHost dashboard's terminal-into-app feature, that path is
+(In the Cloud in a Bottle dashboard's terminal-into-app feature, that path is
 exactly where the file lives.) On first boot, our start script logs
-the **path** to the password file — `[openhost-peertube] Initial root
+the **path** to the password file — `[bottled-peertube] Initial root
 admin password is in /data/app_data/peertube/admin-password.txt`.
 PeerTube's upstream installer separately logs the **value** of the
 password to stdout once during the very first boot only
@@ -303,7 +303,7 @@ cd /app && gosu peertube npm run reset-password -- -u root
 ```
 
 A password reset doesn't disturb the SSO flow: the SSO plugin
-authenticates the owner against the OpenHost router's JWKS and
+authenticates the owner against the Cloud in a Bottle router's JWKS and
 then calls PeerTube's `userAuthenticated()` helper, neither of
 which involves the admin password. Resetting the password only
 affects the `root` + password login form (the break-glass path
@@ -320,7 +320,7 @@ above and the path the PeerTube mobile app uses).
 
 ## Trust proxy
 
-The OpenHost router proxies in over loopback. PeerTube is configured
+The Cloud in a Bottle router proxies in over loopback. PeerTube is configured
 with `PEERTUBE_TRUST_PROXY=["127.0.0.1","loopback"]` so it honours
 `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host` from the
 router and constructs federation URLs with the canonical hostname
@@ -329,7 +329,7 @@ recorded above.
 ## Why bash supervisor instead of s6
 
 s6-overlay is the right choice when the upstream base image already
-ships it (which is what the openhost-jitsi package does — Jitsi's
+ships it (which is what the bottled-jitsi package does — Jitsi's
 upstream Docker images use s6-overlay v1). The PeerTube production
 image does not, and bringing s6 in adds a moving part for three
 children we can supervise just as well with `wait -n` from bash.
